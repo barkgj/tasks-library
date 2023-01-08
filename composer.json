@@ -1,0 +1,17 @@
+{
+    "name": "barkgj/tasks-library",
+    "description": "A PHP library to create, manage and execute tasks",
+    "require": {
+        "php": ">=7.4",
+        "barkgj/functions-library": "dev-main",
+        "barkgj/datasink-library": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+          "barkgj\\datasink\\": "src/vendor/barkgj/datasink-library/"
+        }
+      },
+    "config": {
+        "vendor-dir": "src/vendor"
+    }
+}
