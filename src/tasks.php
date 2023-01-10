@@ -8,14 +8,31 @@
 
 namespace barkgj;
 
+require "itaskinstruction.php";
+
 use barkgj\datasink\entity;
+use barkgj\tasks\itaskinstruction;
 
 final class tasks
 {
+	
+
 	public static function gettaskrecipepath($taskid)
 	{
 		$result = functions::getsitedatafolder() . "/tasks-recipes/{$taskid}.txt";
 		return $result;
+	}
+
+	public static function gettaskinstructionpath($taskinstructiontype)
+	{
+		$result = __DIR__ . "/task-instructions/taskinstruction-{$taskinstructiontype}.php";
+		return $result;
+	}
+
+	public static function ensuretaskinstructionloaded($taskinstructiontype)
+	{
+		$path = tasks::gettaskinstructionpath($taskinstructiontype);
+		require_once($path);
 	}
 
 	public static function taskexists($taskid)
@@ -296,6 +313,15 @@ final class tasks
 		return $result;
 	}
 
+	public static function getinstancestateparameters($taskid, $taskinstanceid)
+	{
+		$instance = tasks::gettaskinstance($taskid, $taskinstanceid);
+		$result = $instance["stateparameters"];
+		$result["taskid"] = $taskid;
+		$result["taskinstanceid"] = $taskinstanceid;
+		return $result;
+	}
+
 	public static function setfinishedinstructionpointer($taskid, $taskinstanceid, $finished_instruction_pointer)
 	{
 		$meta = tasks::gettaskinstance($taskid, $taskinstanceid);
@@ -310,35 +336,6 @@ final class tasks
 		return $result;
 	}
 
-
-	public static function wakeparentoftaskinstance($taskid, $taskinstanceid)
-	{
-		error_log("waking up parent");
-
-		if ($taskid == "" || $taskinstanceid == "") { functions::throw_nack("taskid == empty || taskinstanceid == empty"); }
-		
-		$instancemeta = tasks::gettaskinstance($taskid, $taskinstanceid);
-		
-		$parent_taskid = $instancemeta["createdby_taskid"];
-		$parent_taskinstanceid = $instancemeta["createdby_taskinstanceid"];
-		if ($parent_taskid == "" || $parent_taskinstanceid == "") { functions::throw_nack("parent_taskid == empty || parent_taskinstanceid == empty"); }
-		
-		// if the parent instance is sleeping, consider waking it up
-		$parentmeta = tasks::gettaskinstance($parent_taskid, $parent_taskinstanceid);
-		
-		// wake up parent
-		$parentmeta["state"] = "STARTED";
-		
-		$parentmeta["wakeevents"][] = array
-		(
-			"creationtime" => time(),
-			"wokenby_taskid" => $taskid,
-			"wokenby_taskinstanceid" => $taskinstanceid,
-		);
-		tasks::updatetaskinstance($parent_taskid, $parent_taskinstanceid, $parentmeta);
-	}
-
-
 	public static function gettaskinstancelookup($taskid, $taskinstanceid, $orig_args = array())
 	{
 		$defaults = array
@@ -349,11 +346,7 @@ final class tasks
 	
 		$exclude_keys = $args["exclude_keys"];
 		
-		// 
-		$path = tasks::gettaskpath($taskid);
-		$string = file_get_contents($path);
-		$meta = json_decode($string, true);
-		$instancemeta = $meta[$taskinstanceid];
+		$instancemeta = tasks::gettaskinstance($taskid, $taskinstanceid);
 		
 		// inject all attached ("static") json_lookup_runtime parameters
 		$filter_attachment_type = "";	// empty means all (alt: "runtime_json_lookup")
@@ -370,7 +363,7 @@ final class tasks
 			$result[$attachmentid] = $value;
 		}
 		
-		// stronger than attached lookups are fields of the task instance
+		// stronger than attached lookups are the state parameters of the task instance
 		$persistent_instance_fields = $instancemeta["stateparameters"];
 		foreach ($persistent_instance_fields as $key => $val)
 		{
@@ -383,16 +376,9 @@ final class tasks
 			$result[$key] = $val;
 		}
 		
-		// add more lookup parameters here, as needed
-		// such as 'json_lookup
-		
 		// runtime parameters, available for 'free', these will override any values stored above
 		$result["taskid"] = $taskid;
 		$result["taskinstanceid"] = $taskinstanceid;
-		
-		//
-		// todo: consider to apply the lookup values onto the dictionary itself recursively
-		//
 		
 		return $result;
 	}
@@ -609,155 +595,6 @@ final class tasks
 		return $result;
 	}
 
-	public static function unarchive_archived_task_instance($taskid_to_unarchive, $taskinstanceid_to_unarchive)
-	{
-		$result = array();
-		
-		// 
-		
-		$findarchivedinstanceresult = tasks::archive_findarchivedinstance($taskid_to_unarchive, $taskinstanceid_to_unarchive);
-		$result["findarchivedinstanceresult"] = $findarchivedinstanceresult;
-		if ($findarchivedinstanceresult["isfound"])
-		{
-			$taskid = $taskid_to_unarchive;
-			$taskinstanceid = $taskinstanceid_to_unarchive;
-			
-			$props = $findarchivedinstanceresult["props"];
-
-			$path = tasks::gettaskpath($taskid);
-			$string = file_get_contents($path);
-			$meta = json_decode($string, true);
-			
-			if (isset($meta[$taskinstanceid]))
-			{
-				functions::throw_nack("error unarchiving archived task instance; instance {$taskinstanceid}@{$taskid} already exists?");
-			}
-			
-			$meta[$taskinstanceid] = $props;
-			$string = json_encode($meta);
-			$r = file_put_contents($path, $string, LOCK_EX);
-			if ($r === false) { functions::throw_nack("error unarchiving archived task instance; unable to write?"); }
-			
-			$result["countafter"] = count($meta);
-		}
-		else
-		{
-			functions::throw_nack("error unarchiving archived task instance; not found in archive;" . json_encode($findarchivedinstanceresult));
-		}
-		
-		return $result;
-	}
-
-	public static function archive_findarchivedinstance($taskid, $taskinstanceid)
-	{
-		$result = array
-		(
-			"isfound" => false,
-		);
-		
-		$containerpath = tasks::getarchivescontainerpath();
-		$folderpaths = array_filter(glob("{$containerpath}*"), 'is_dir');
-		foreach ($folderpaths as $folderpath)
-		{
-			$result["debug"][] = "considering:$folderpath";
-			$archivename = basename($folderpath);
-			$archivepath = "{$containerpath}{$archivename}/{$archivename}_archived_{$taskid}.json";
-			if (file_exists($archivepath))
-			{
-				$archive_string = file_get_contents($archivepath);
-				$archive_data = json_decode($archive_string, true);
-				
-				$count = count($archive_data);
-				
-				if (isset($archive_data[$taskinstanceid]))
-				{
-					$result["isfound"] = true;
-					$result["props"] = $archive_data[$taskinstanceid];
-					break;
-				}
-				else
-				{
-					$result["debug"][] = "archivename:$archivename";
-					$result["debug"][] = "archivepath:$archivepath";
-					$result["debug"][] = "items:$count";
-				}			
-			}
-			else
-			{
-				$result["debug"][] = "archivepath not found; $archivepath";
-			}
-		}
-		
-		unset($result["debug"]);
-		
-		return $result;
-	}
-
-	public static function getpath_archivedtaskinstances($taskid, $createtime)
-	{
-		if ($taskid == "") { functions::throw_nack("taskid not set"); }
-		
-		/*
-		if ($createtime == "")
-		{
-			$createtime = time() - (86400 * 60);	// 60 days in the past
-		}
-		*/
-		
-		if ($createtime == "") { functions::throw_nack("createtime not set"); }
-		
-		$yyyy = date("Y", $createtime);
-		$mm = date("m", $createtime);
-		
-		$containerpath = tasks::getarchivescontainerpath();
-		$result = "{$containerpath}{$yyyy}_{$mm}/{$yyyy}_{$mm}_archived_{$taskid}.json";
-		return $result;
-	}
-
-	public static function getpossiblefilepaths($taskid)
-	{
-		$result = array();
-		
-		// the current task path is the first one to consider
-		$result[] = tasks::gettaskpath($taskid);
-		
-		// followed by all subsequent archived ones, starting with the most recent one till the oldest one
-		// the oldest one is from may 2019
-		$containerpath = tasks::getarchivescontainerpath();
-		
-		$year_oldest_taskinstance = 2019;
-		$lowest_month_taskinstance_in_oldest_year = 5;
-		$heightestyear = date("Y");
-		for ($year = $heightestyear; $year >= $year_oldest_taskinstance; $year--)
-		{
-			if ($year == $heightestyear)
-			{
-				$heighestmonthinyear = date('m');
-				$lowestmonthinyear = 1;
-			}
-			else if ($year == $year_oldest_taskinstance)
-			{
-				$heighestmonthinyear = 12;
-				$lowestmonthinyear = $lowest_month_taskinstance_in_oldest_year;
-			}
-			else
-			{
-				$heighestmonthinyear = 12;
-				$lowestmonthinyear = 1;
-			}
-			
-			for ($month = $heighestmonthinyear; $month >= $lowestmonthinyear; $month--)
-			{
-				$mm = str_pad($month, 2, "0", STR_PAD_LEFT);
-				$yyyy = $year;
-				
-				$result[]= "{$containerpath}{$yyyy}_{$mm}/{$yyyy}_{$mm}_archived_{$taskid}.json";
-			}
-		}
-		
-		return $result;	
-	}
-
 	public static function updatetaskinstance($taskid, $taskinstanceid, $taskinstancemeta)
 	{
 		if ($taskid == "") { functions::throw_nack("taskid not set"); }
@@ -772,9 +609,9 @@ final class tasks
 		$props_to_keep = array("createtime", "createdbyip", "createdby_taskid", "createdby_taskinstanceid", "instance_context", "id", "datasink_invokedbytaskid", "datasink_invokedbytaskinstanceid'");
 		foreach ($props_to_keep as $prop_to_keep)
 		{
-			if (isset($existingstateparameters[$prop_to_keep]))
+			if (isset($existingtaskinstancemeta[$prop_to_keep]))
 			{
-				$storeargs[$prop_to_keep] = $existingstateparameters[$prop_to_keep];
+				$storeargs[$prop_to_keep] = $existingtaskinstancemeta[$prop_to_keep];
 			}
 		}
 
@@ -787,160 +624,6 @@ final class tasks
 		$result["storeentitydataresult"] = $r;
 		return $result;
 	}
-
-	/*
-	public static function purgeinstances($taskid, $itemstopurge)
-	{
-		$result = array();
-		
-		$instances = tasks::gettaskinstances($taskid);
-		$result["countbefore"] = count($instances);
-		
-		if ($taskid == "") { functions::throw_nack("taskid not set"); }
-		if ($itemstopurge == "") { functions::throw_nack("itemstopurge not set"); }
-
-		// group items by archive path
-		foreach ($itemstopurge as $itemtopurge)
-		{
-			$taskinstanceid = $itemtopurge["instance_context"];
-			unset($instances[$taskinstanceid]);
-		}
-
-		// store the updated version
-		$string = json_encode($instances);
-		$path = tasks::gettaskpath($taskid);
-		$r = file_put_contents($path, $string, LOCK_EX);	
-
-		$result["countafter"] = count($instances);
-		
-		return $result;
-	}
-
-	public static function appenditemstoarchive($taskid, $items_toarchive)
-	{
-		if ($taskid == "") { functions::throw_nack("taskid not set"); }
-		if ($items_toarchive == "") { functions::throw_nack("items_toarchive not set"); }
-		
-		$items_by_archivepath = array();
-		
-		// group items by archive path
-		foreach ($items_toarchive as $itemtoarchive)
-		{
-			// step 2.1;  grab creationdate of instance
-			$createtime = $itemtoarchive["createtime"];
-			
-			// step 2.2;  determine archive path  (id + yyyy + mm of creationdate of instance.json)
-			$path = tasks::getpath_archivedtaskinstances($taskid, $createtime);
-			
-			$items_by_archivepath[$path][] = $itemtoarchive;
-		}
-		
-		foreach ($items_by_archivepath as $path => $items)
-		{
-			$subresult = tasks::appenditemstoarchivepath($taskid, $items, $path);
-			$result["actions"][] = $subresult;
-		}
-		
-		return $result;
-	}
-
-	public static function appenditemstoarchivepath($taskid, $items_to_append, $path)
-	{
-		$result = array();
-		
-		if ($path == "") { functions::throw_nack("path not set"); }
-		if ($items_to_append == "") { functions::throw_nack("items_to_append not set"); }
-		
-		$result["items_to_append"] = count($items_to_append);
-		
-		// step 1; ensure the folder exists
-		functions\filesystem::createcontainingfolderforfilepathifnotexists($path);
-		
-		// step 2; load existing items if there are any
-		$items = array();
-		if (file_exists($path))
-		{
-			$content = file_get_contents($path);
-			$items = json_decode($content, true);
-			if ($items == "")
-			{
-				// weird!
-				functions::throw_nack("didnt expect items to be empty, please check whats going on ($path); invalid json?");
-			}		
-		}
-		
-		$result["items_in_archive_before"] = count($items);
-		
-		// blend the existing ones with the items to append
-		foreach ($items_to_append as $item_to_append)
-		{
-			$taskinstanceid = $item_to_append["instance_context"];
-			
-			// double check this is the proper path
-			$createtime = $item_to_append["createtime"];
-			$check_path = tasks::getpath_archivedtaskinstances($taskid, $createtime);
-			if ($path != $check_path) { functions::throw_nack("path mismatch? $path vs $check_path"); }
-
-			$items[$taskinstanceid] = $item_to_append;
-		}
-		
-		// store the updated version
-		$string = json_encode($items);
-		$r = file_put_contents($path, $string, LOCK_EX);
-		
-		if ($r === false) { functions::throw_nack("error updating task instance"); }
-		
-		$result["items_in_archive_after"] = count($items);
-		$result["path"] = $path;
-		
-		return $result;
-	}
-	*/
-	/*
-	public static function gettaskstitle($taskid, $context = "", $context2 = "")
-	{
-		global $g_modelmanager;
-		$args = array("modeluri" => "{$taskid}@nxs.p001.businessprocess.task");
-		$task_props = $g_modelmanager->getmodeltaxonomyproperties($args);
-
-		if (false)
-		{
-		}
-		else if ($context == "" && $context2 == "")
-		{
-			$result = $task_props["title"];
-		}
-		else if ($context != "" && $context2 == "")
-		{
-			$result = $task_props["title_{$context}"];
-			if ($result == "") 
-			{ 
-				$result = $task_props["title"];
-				$result .= " <!-- (a1) -->";
-			}
-		}
-		else if ($context != "" && $context2 != "")
-		{
-			$result = $task_props["title_{$context}_{$context2}"];
-			if ($result == "") 
-			{
-				$result = $task_props["title_{$context}"];
-				if ($result == "")
-				{
-					$result = $task_props["title"] . " (53443598735)";
-					$result .= " <!-- (b2) -->";
-				}
-				$result .= " <!-- (b1) -->";
-			}
-		}
-		else
-		{
-			$result = $task_props["title"];
-			$result .= " (c1)";
-		}
-		return $result;
-	}
-	*/
 
 	public static function appendinputparameter_for_taskinstance($taskid, $taskinstanceid, $key, $val)
 	{
@@ -966,6 +649,33 @@ final class tasks
 		$result = tasks::updatetaskinstance($taskid, $taskinstanceid, $meta);
 
 		return $result;
+	}
+
+	public static function gettasktitle($taskid)
+	{
+		$getentitymetadatarawargs = array
+		(
+			"datasink_realm" => "tasks",
+			"datasink_entitytype" => "task",
+			"id" => $taskid
+		);
+		$task_props = entity::getentitymetadataraw($getentitymetadatarawargs);
+		$result = $task_props["title"];
+		
+		return $result;
+	}
+
+	// aka process_type
+	public static function getprocessingtype($taskid)
+	{
+		$getentitymetadatarawargs = array
+		(
+			"datasink_realm" => "tasks",
+			"datasink_entitytype" => "task",
+			"id" => $taskid
+		);
+		$task_props = entity::getentitymetadataraw($getentitymetadatarawargs);
+		$result = $task_props["processing_type"];
 	}
 
 	//
@@ -1000,7 +710,6 @@ final class tasks
 		tasks::appendinputparameter_for_taskinstance($taskid, $taskinstanceid, $key, $val);
 	}
 
-	
 	public static function deletestateparameters_for_taskinstance($taskid, $taskinstanceid, $stateparameters)
 	{
 		$basefolder = tasks::getbasefolder();
@@ -1032,36 +741,20 @@ final class tasks
 
 	public static function appendcreatedtask_to_taskinstance($taskid, $taskinstanceid, $created_taskid, $created_taskinstanceid)
 	{
-		// error_log("tasks_appendcreatedtask_to_taskinstance; attempt to store $taskid, $taskinstanceid, $created_taskid, $created_taskinstanceid");
-		
-		$basefolder = tasks::getbasefolder();
-		$path = "{$basefolder}/{$taskid}.json";
-		$string = file_get_contents($path);
-		$meta = json_decode($string, true);
-		
+		$parent_taskmeta = tasks::gettaskinstance($taskid, $taskinstanceid);
+
 		$created_task = array
 		(
 			"creation_time" => time(),
 			"taskid" => $created_taskid,
 			"taskinstanceid" => $created_taskinstanceid,
 		);
-		
-		if (isset($meta[$taskinstanceid]))
-		{
-			$meta[$taskinstanceid]["created_tasks"][] = $created_task;
-			$string = json_encode($meta);
-			$r = file_put_contents($path, $string, LOCK_EX);
-			if ($r === false) { functions::throw_nack("tasks_appendcreatedtask_to_taskinstance; error updating task instance"); }
-		}
-		else
-		{
-			error_log("tasks_appendcreatedtask_to_taskinstance; not found; {$taskid} - {$taskinstanceid}");
-		}
+		$parent_taskmeta[$taskinstanceid]["created_tasks"][] = $created_task;
 
-		$result = array();
+		$result = tasks::updatetaskinstance($taskid, $taskinstanceid, $parent_taskmeta);
+		
 		return $result;
 	}
-
 	
 	public static function gettaskrecipe($taskid)
 	{
@@ -1209,8 +902,19 @@ final class tasks
 		return $result;
 	}
 
-	
-	
+	public static function gettaskinstanceids($taskid)
+	{
+		$getentitiesrawargs = array
+		(
+			"datasink_realm" => "tasks",
+			"datasink_entitytype" => "task_{$taskid}_instances",
+			"datasink_include_meta" => false
+		);
+		$entities = entity::getentitiesraw($getentitiesrawargs);
+		$result = array_keys($entities);
+
+		return $result;
+	}
 
 	public static function gettaskinstances($taskid)
 	{
@@ -1411,15 +1115,7 @@ final class tasks
 		return $result;
 	}
 
-	public static function getinstancestateparameters($taskid, $taskinstanceid)
-	{
-		$instance = tasks::gettaskinstance($taskid, $taskinstanceid);
-		$result = $instance["stateparameters"];
-		$result["taskid"] = $taskid;
-		$result["taskinstanceid"] = $taskinstanceid;
-		return $result;
-	}
-
+	
 	public static function getstacktracepreviousgeneration($taskid, $taskinstanceid)
 	{
 		$result = array();
@@ -2117,21 +1813,6 @@ final class tasks
 		return $result;
 	}
 
-	// aka process_type
-	public static function getprocessingtype($taskid)
-	{
-		$schema = "nxs.p001.businessprocess.task";
-		$property = "processing_type";
-		global $g_modelmanager;
-		$a = array
-		(
-			"modeluri" => "{$taskid}@{$schema}",
-			"property" => $property,
-		);
-		$result = $g_modelmanager->getmodeltaxonomyproperty($a);
-		return $result;
-	}
-
 	public static function get_ordered_task_instances_requiring_batch_processing()
 	{
 		// todo; optimize this function; it should only return the next upcoming
@@ -2355,11 +2036,7 @@ final class tasks
 		return $result;
 	}
 
-	public static function gettaskinstructionpath($type)
-	{
-		$result = __DIR__ . "/task-instructions/taskinstruction-{$type}.php";
-		return $result;
-	}
+	
 
 	public static function execute_headless_from_current_execution_pointer($taskid, $taskinstanceid, $executionmode)
 	{
@@ -2547,7 +2224,7 @@ final class tasks
 		foreach ($taskinstances as $taskinstance)
 		{
 			$taskid = $taskinstance["taskid"];
-			$title = tasks::gettaskstitle($taskid);
+			$title = tasks::gettasktitle($taskid);
 			$taskinstanceid = $taskinstance["taskinstanceid"];
 			$instancemeta = tasks::gettaskinstance($taskid, $taskinstanceid);
 			
@@ -2806,5 +2483,283 @@ final class tasks
 			}
 		}
 	}
+
+	public static function purgeinstances($taskid, $itemstopurge)
+	{
+		$result = array();
+		
+		$instances = tasks::gettaskinstances($taskid);
+		$result["countbefore"] = count($instances);
+		
+		if ($taskid == "") { functions::throw_nack("taskid not set"); }
+		if ($itemstopurge == "") { functions::throw_nack("itemstopurge not set"); }
+
+		// group items by archive path
+		foreach ($itemstopurge as $itemtopurge)
+		{
+			$taskinstanceid = $itemtopurge["instance_context"];
+			unset($instances[$taskinstanceid]);
+		}
+
+		// store the updated version
+		$string = json_encode($instances);
+		$path = tasks::gettaskpath($taskid);
+		$r = file_put_contents($path, $string, LOCK_EX);	
+
+		$result["countafter"] = count($instances);
+		
+		return $result;
+	}
+
+	public static function appenditemstoarchive($taskid, $items_toarchive)
+	{
+		if ($taskid == "") { functions::throw_nack("taskid not set"); }
+		if ($items_toarchive == "") { functions::throw_nack("items_toarchive not set"); }
+		
+		$items_by_archivepath = array();
+		
+		// group items by archive path
+		foreach ($items_toarchive as $itemtoarchive)
+		{
+			// step 2.1;  grab creationdate of instance
+			$createtime = $itemtoarchive["createtime"];
+			
+			// step 2.2;  determine archive path  (id + yyyy + mm of creationdate of instance.json)
+			$path = tasks::getpath_archivedtaskinstances($taskid, $createtime);
+			
+			$items_by_archivepath[$path][] = $itemtoarchive;
+		}
+		
+		foreach ($items_by_archivepath as $path => $items)
+		{
+			$subresult = tasks::appenditemstoarchivepath($taskid, $items, $path);
+			$result["actions"][] = $subresult;
+		}
+		
+		return $result;
+	}
+
+	public static function appenditemstoarchivepath($taskid, $items_to_append, $path)
+	{
+		$result = array();
+		
+		if ($path == "") { functions::throw_nack("path not set"); }
+		if ($items_to_append == "") { functions::throw_nack("items_to_append not set"); }
+		
+		$result["items_to_append"] = count($items_to_append);
+		
+		// step 1; ensure the folder exists
+		functions\filesystem::createcontainingfolderforfilepathifnotexists($path);
+		
+		// step 2; load existing items if there are any
+		$items = array();
+		if (file_exists($path))
+		{
+			$content = file_get_contents($path);
+			$items = json_decode($content, true);
+			if ($items == "")
+			{
+				// weird!
+				functions::throw_nack("didnt expect items to be empty, please check whats going on ($path); invalid json?");
+			}		
+		}
+		
+		$result["items_in_archive_before"] = count($items);
+		
+		// blend the existing ones with the items to append
+		foreach ($items_to_append as $item_to_append)
+		{
+			$taskinstanceid = $item_to_append["instance_context"];
+			
+			// double check this is the proper path
+			$createtime = $item_to_append["createtime"];
+			$check_path = tasks::getpath_archivedtaskinstances($taskid, $createtime);
+			if ($path != $check_path) { functions::throw_nack("path mismatch? $path vs $check_path"); }
+
+			$items[$taskinstanceid] = $item_to_append;
+		}
+		
+		// store the updated version
+		$string = json_encode($items);
+		$r = file_put_contents($path, $string, LOCK_EX);
+		
+		if ($r === false) { functions::throw_nack("error updating task instance"); }
+		
+		$result["items_in_archive_after"] = count($items);
+		$result["path"] = $path;
+		
+		return $result;
+	}
+
+	
+	public static function wakeparentoftaskinstance($taskid, $taskinstanceid)
+	{
+		error_log("waking up parent");
+
+		if ($taskid == "" || $taskinstanceid == "") { functions::throw_nack("taskid == empty || taskinstanceid == empty"); }
+		
+		$instancemeta = tasks::gettaskinstance($taskid, $taskinstanceid);
+		
+		$parent_taskid = $instancemeta["createdby_taskid"];
+		$parent_taskinstanceid = $instancemeta["createdby_taskinstanceid"];
+		if ($parent_taskid == "" || $parent_taskinstanceid == "") { functions::throw_nack("parent_taskid == empty || parent_taskinstanceid == empty"); }
+		
+		// if the parent instance is sleeping, consider waking it up
+		$parentmeta = tasks::gettaskinstance($parent_taskid, $parent_taskinstanceid);
+		
+		// wake up parent
+		$parentmeta["state"] = "STARTED";
+		
+		$parentmeta["wakeevents"][] = array
+		(
+			"creationtime" => time(),
+			"wokenby_taskid" => $taskid,
+			"wokenby_taskinstanceid" => $taskinstanceid,
+		);
+		tasks::updatetaskinstance($parent_taskid, $parent_taskinstanceid, $parentmeta);
+	}
+
+	public static function unarchive_archived_task_instance($taskid_to_unarchive, $taskinstanceid_to_unarchive)
+	{
+		$result = array();
+		
+		// 
+		
+		$findarchivedinstanceresult = tasks::archive_findarchivedinstance($taskid_to_unarchive, $taskinstanceid_to_unarchive);
+		$result["findarchivedinstanceresult"] = $findarchivedinstanceresult;
+		if ($findarchivedinstanceresult["isfound"])
+		{
+			$taskid = $taskid_to_unarchive;
+			$taskinstanceid = $taskinstanceid_to_unarchive;
+			
+			$props = $findarchivedinstanceresult["props"];
+
+			$path = tasks::gettaskpath($taskid);
+			$string = file_get_contents($path);
+			$meta = json_decode($string, true);
+			
+			if (isset($meta[$taskinstanceid]))
+			{
+				functions::throw_nack("error unarchiving archived task instance; instance {$taskinstanceid}@{$taskid} already exists?");
+			}
+			
+			$meta[$taskinstanceid] = $props;
+			$string = json_encode($meta);
+			$r = file_put_contents($path, $string, LOCK_EX);
+			if ($r === false) { functions::throw_nack("error unarchiving archived task instance; unable to write?"); }
+			
+			$result["countafter"] = count($meta);
+		}
+		else
+		{
+			functions::throw_nack("error unarchiving archived task instance; not found in archive;" . json_encode($findarchivedinstanceresult));
+		}
+		
+		return $result;
+	}
+
+	public static function archive_findarchivedinstance($taskid, $taskinstanceid)
+	{
+		$result = array
+		(
+			"isfound" => false,
+		);
+		
+		$containerpath = tasks::getarchivescontainerpath();
+		$folderpaths = array_filter(glob("{$containerpath}*"), 'is_dir');
+		foreach ($folderpaths as $folderpath)
+		{
+			$result["debug"][] = "considering:$folderpath";
+			$archivename = basename($folderpath);
+			$archivepath = "{$containerpath}{$archivename}/{$archivename}_archived_{$taskid}.json";
+			if (file_exists($archivepath))
+			{
+				$archive_string = file_get_contents($archivepath);
+				$archive_data = json_decode($archive_string, true);
+				
+				$count = count($archive_data);
+				
+				if (isset($archive_data[$taskinstanceid]))
+				{
+					$result["isfound"] = true;
+					$result["props"] = $archive_data[$taskinstanceid];
+					break;
+				}
+				else
+				{
+					$result["debug"][] = "archivename:$archivename";
+					$result["debug"][] = "archivepath:$archivepath";
+					$result["debug"][] = "items:$count";
+				}			
+			}
+			else
+			{
+				$result["debug"][] = "archivepath not found; $archivepath";
+			}
+		}
+		
+		unset($result["debug"]);
+		
+		return $result;
+	}
+
+	public static function getpath_archivedtaskinstances($taskid, $createtime)
+	{
+		if ($taskid == "") { functions::throw_nack("taskid not set"); }
+		
+		if ($createtime == "") { functions::throw_nack("createtime not set"); }
+		
+		$yyyy = date("Y", $createtime);
+		$mm = date("m", $createtime);
+		
+		$containerpath = tasks::getarchivescontainerpath();
+		$result = "{$containerpath}{$yyyy}_{$mm}/{$yyyy}_{$mm}_archived_{$taskid}.json";
+		return $result;
+	}
+
+	public static function getpossiblefilepaths($taskid)
+	{
+		$result = array();
+		
+		// the current task path is the first one to consider
+		$result[] = tasks::gettaskpath($taskid);
+		
+		// followed by all subsequent archived ones, starting with the most recent one till the oldest one
+		// the oldest one is from may 2019
+		$containerpath = tasks::getarchivescontainerpath();
+		
+		$year_oldest_taskinstance = 2019;
+		$lowest_month_taskinstance_in_oldest_year = 5;
+		$heightestyear = date("Y");
+		for ($year = $heightestyear; $year >= $year_oldest_taskinstance; $year--)
+		{
+			if ($year == $heightestyear)
+			{
+				$heighestmonthinyear = date('m');
+				$lowestmonthinyear = 1;
+			}
+			else if ($year == $year_oldest_taskinstance)
+			{
+				$heighestmonthinyear = 12;
+				$lowestmonthinyear = $lowest_month_taskinstance_in_oldest_year;
+			}
+			else
+			{
+				$heighestmonthinyear = 12;
+				$lowestmonthinyear = 1;
+			}
+			
+			for ($month = $heighestmonthinyear; $month >= $lowestmonthinyear; $month--)
+			{
+				$mm = str_pad($month, 2, "0", STR_PAD_LEFT);
+				$yyyy = $year;
+				
+				$result[]= "{$containerpath}{$yyyy}_{$mm}/{$yyyy}_{$mm}_archived_{$taskid}.json";
+			}
+		}
+		
+		return $result;	
+	}
+
 	*/
 }

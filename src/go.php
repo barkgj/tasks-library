@@ -11,6 +11,7 @@ require __DIR__ . '/tasks.php';
 use barkgj\functions;
 use barkgj\tasks;
 use barkgj\datasink\entity;
+use barkgj\tasks\itaskinstruction;
 
 if (false)
 {
@@ -27,6 +28,9 @@ if (!function_exists("functions__override__getsitedatafolder"))
         return "C:\\site1\\";
     }
 }
+
+// load dependent wp functions in case invoked from outside wp (when invoked from cli)
+require_once("wp-functions.php");
 
 /*
 if (false)
@@ -129,7 +133,14 @@ if (false)
 if (false)
 {
     $taskid = 1;
-    $i = tasks::getinstances($taskid);
+    $i = tasks::gettaskinstances($taskid);
+    var_dump($i);
+}
+
+if (false)
+{
+    $taskid = 1;
+    $i = tasks::gettaskinstanceids($taskid);
     var_dump($i);
 }
 
@@ -140,7 +151,7 @@ if (false)
     var_dump($meta);
 }
 
-if (true)
+if (false)
 {
     $taskid = 1;
     $taskinstanceid = "CFAC5ACB-DC26-4C34-A86D-B4FBEAF9E74F";
@@ -156,6 +167,52 @@ if (true)
     $instance = tasks::gettaskinstance($taskid, $taskinstanceid);
     echo "after:\r\n";
     var_dump($instance);
+}
+
+if (false)
+{
+    $taskid = 1;
+    $taskinstanceid = "CFAC5ACB-DC26-4C34-A86D-B4FBEAF9E74F";
+
+    $r = tasks::getreflectionmeta($taskid, $taskinstanceid);
+
+    var_dump($r);
+}
+
+if (false)
+{
+    $taskid = 1;
+    $taskinstanceid = "CFAC5ACB-DC26-4C34-A86D-B4FBEAF9E74F";
+
+    $r = tasks::gettaskinstancestate($taskid, $taskinstanceid);
+
+    var_dump($r);
+}
+
+if (true)
+{
+    $taskinstructions = array();
+
+    tasks::ensuretaskinstructionloaded("set_stateparameter");
+
+    
+
+    $taskid = 1;
+    $taskinstanceid = "CFAC5ACB-DC26-4C34-A86D-B4FBEAF9E74F";
+
+    $taskinstructions[] = new set_stateparameter($taskid, $taskinstanceid, array("key"=>"nameofproperty", "value"=> "valueofproperty"));
+    $taskinstructions[] = new set_stateparameter($taskid, $taskinstanceid, array("key"=>"aap", "value"=> "10"));
+
+    foreach($taskinstructions as $taskinstruction)
+    {
+        $e = $taskinstruction->execute();
+    }
+
+    $r = tasks::gettaskinstance($taskid, $taskinstanceid);
+
+    var_dump($r);
+}
+
 
 
 
@@ -177,6 +234,6 @@ if (true)
 
     //$a = "a5c584e70bf85ab23916ecf5d4d8bd0b";
 
-}
+
 
 die();
