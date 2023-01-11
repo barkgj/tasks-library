@@ -15,8 +15,6 @@ use barkgj\tasks\itaskinstruction;
 
 final class tasks
 {
-	
-
 	public static function gettaskrecipepath($taskid)
 	{
 		$result = functions::getsitedatafolder() . "/tasks-recipes/{$taskid}.txt";
@@ -503,15 +501,8 @@ final class tasks
 					}
 					else if ($linetype == "taskinstruction")
 					{
-						//
-
-						global $g_modelmanager;
-						$a = array
-						(
-							"modeluri" => "{$taskid}@nxs.p001.businessprocess.task",
-							"property" => "execution_pointers_support",
-						);
-						$execution_pointers_support = $g_modelmanager->getmodeltaxonomyproperty($a);
+						$taskmeta = tasks::gettaskmeta($taskid);
+						$execution_pointers_support = $taskmeta["execution_pointers_support"];
 					
 						if ($execution_pointers_support == "v1")
 						{
@@ -1357,75 +1348,8 @@ final class tasks
 		return $result;
 	}
 
-	// query task instances / queries task instances
-	public static function searchtaskinstances($args)
-	{
-		$return_this = $args["return_this"];
-		
-		$if_this = $args["if_this"];
-		if ($if_this == null) { functions::throw_nack("tasks_searchtaskinstances; if_this not set in args"); }
 
-		$result["taskinstances"] = array();
-		
-		// loop over all tasks types
-		global $g_modelmanager;
-		$a = array("singularschema" => "nxs.p001.businessprocess.task");
-		$alltaskrows = $g_modelmanager->gettaxonomypropertiesofallmodels($a);
-		foreach ($alltaskrows as $alltaskrow)
-		{
-			$task_id = $alltaskrow["nxs.p001.businessprocess.task_id"];
-			$title = $alltaskrow["title"];
-			
-			$path = tasks::gettaskpath($task_id);
-			if (!file_exists($path)) 
-			{ 
-				// $result["errors"][] = "task_id skipped; path not found? $task_id";
-				continue;
-			}
-
-			$string = file_get_contents($path);
-			
-			$allmeta = json_decode($string, true);
-			
-			foreach ($allmeta as $id => $meta)
-			{
-				$evaluate_result = tasks::search_evaluate_if_this($if_this, $task_id, $meta);
-				if ($evaluate_result["conclusion"] == true)
-				{
-					if (false)
-					{
-					}
-					else if (!isset($return_this))
-					{
-						$result["taskinstances"][] = array
-						(
-							"taskid" => $task_id,
-							"taskinstanceid" => $id,
-							"url" => "https://global.nexusthemes.com/?nxs=task-gui&page=taskinstancedetail&taskid={$task_id}&taskinstanceid={$id}",
-						);
-					}
-					else if ($return_this == "details")
-					{
-						$meta["taskid"] = $task_id;
-						$meta["taskinstanceid"] = $id;
-						$result["taskinstances"][] = $meta;
-					}
-					else
-					{
-						$result["taskinstances"][] = array
-						(
-							"taskid" => $task_id,
-							"taskinstanceid" => $id,
-							"url" => "https://global.nexusthemes.com/?nxs=task-gui&page=taskinstancedetail&taskid={$task_id}&taskinstanceid={$id}",
-						);
-					}
-				}
-			}
-		}
-		
-		return $result;
-	}
-
+	
 	public static function search_evaluate_if_this($if_this, $taskid, $taskmeta)
 	{
 		if ($if_this == null)
@@ -1818,8 +1742,9 @@ final class tasks
 		// todo; optimize this function; it should only return the next upcoming
 		// instance which requires batch processing (or empty if its not existing)
 		global $g_modelmanager;
-		
+
 		// get all tasks
+		
 		$schema = "nxs.p001.businessprocess.task";
 		global $g_modelmanager;
 		$a = array
@@ -1832,13 +1757,12 @@ final class tasks
 		
 		foreach ($allentries as $entry)
 		{
-			$taskid = $entry["nxs.p001.businessprocess.task_id"];
-			$title = $entry["title"];
+			$taskid = $entry["id"];
 			$handle_prio = $entry["handle_prio"];
 			$processing_type = $entry["processing_type"];
 			if ($processing_type == "automated")
 			{
-				$instances = tasks::getinstances($taskid);
+				$instances = tasks::gettaskinstances($taskid);
 				foreach ($instances as $instanceid => $instancemeta)
 				{
 					$state = $instancemeta["state"];
@@ -1857,10 +1781,42 @@ final class tasks
 		
 		usort($items_requiring_batch_processing, function ($a, $b) 
 		{
-		return $b['handle_prio'] <=> $a['handle_prio'];
+			return $b['handle_prio'] <=> $a['handle_prio'];
 		});
 		
 		return $items_requiring_batch_processing;
+	}
+
+	public static function starttaskinstance($taskid, $taskinstanceid, $assignedtoemployee_id)
+	{
+		if ($taskid == "") { functions::throw_nack("businessprocesstaskid not set"); }
+		if ($taskinstanceid == "") { functions::throw_nack("taskinstanceid not set"); }
+
+		$taskinstance = tasks::gettaskinstance($taskid, $taskinstanceid);
+		$oldstate = $taskinstance["state"];
+		if ($oldstate != "CREATED") { functions::throw_nack("unexpected old state; $oldstate (expected CREATED)"); }
+		
+		$taskinstance[$taskinstanceid]["state"] = "STARTED";
+		$taskinstance["starttime"] = time();
+		
+		if ($assignedtoemployee_id != "")
+		{
+			$taskinstance["assignedtoemployee_id"] = $assignedtoemployee_id;
+		}
+
+		$duration_secs = $taskinstance["starttime"] - $taskinstance["createtime"];
+		$duration_human = functions::getsecondstohumanreadable($duration_secs);
+
+		$updateresult = tasks::updatetaskinstance($taskid, $taskinst, $taskinstance);
+
+		$result = array
+		(
+			"updateresult" => $updateresult,
+			"duration_secs" => $duration_secs,
+			"duration_human" => $duration_human,
+		);
+		
+		return $result;
 	}
 
 	public static function endtaskinstance($taskid, $taskinstanceid)
@@ -1893,49 +1849,6 @@ final class tasks
 		(
 			//"path" => $path,
 			//"length" => strlen($string),
-			"duration_secs" => $duration_secs,
-			"duration_human" => $duration_human,
-		);
-		
-		return $result;
-	}
-
-	public static function starttaskinstance($taskid, $taskinstanceid, $assignedtoemployee_id)
-	{
-		if ($taskid == "") { functions::throw_nack("businessprocesstaskid not set"); }
-		if ($taskinstanceid == "") { functions::throw_nack("taskinstanceid not set"); }
-			
-		$path = tasks::gettaskpath($taskid);
-		if (!file_exists($path)) { functions::throw_nack("not found? (perhaps you forgot to create the task first?)"); }
-
-		$string = file_get_contents($path);
-		$meta = json_decode($string, true);
-		
-		if (!isset($meta[$taskinstanceid])) { functions::throw_nack("unable to start task; instance not found? (create it first)"); }
-		
-		$oldstate = $meta[$taskinstanceid]["state"];
-		if ($oldstate != "CREATED") { functions::throw_nack("unexpected old state; $oldstate (expected CREATED)"); }
-		
-		$meta[$taskinstanceid]["state"] = "STARTED";
-		$meta[$taskinstanceid]["starttime"] = time();
-		// $meta[$taskinstanceid]["startedbyip"] = $_SERVER['REMOTE_ADDR'];
-		
-		if ($assignedtoemployee_id != "")
-		{
-			$meta[$taskinstanceid]["assignedtoemployee_id"] = $assignedtoemployee_id;
-		}
-
-		$duration_secs = $meta[$taskinstanceid]["starttime"] - $meta[$taskinstanceid]["createtime"];
-		$duration_human = functions::getsecondstohumanreadable($duration_secs);
-
-		$string = json_encode($meta);
-		
-		file_put_contents($path, $string, LOCK_EX);
-		
-		$result = array
-		(
-			"path" => $path,
-			"length" => strlen($string),
 			"duration_secs" => $duration_secs,
 			"duration_human" => $duration_human,
 		);
@@ -2036,8 +1949,6 @@ final class tasks
 		return $result;
 	}
 
-	
-
 	public static function execute_headless_from_current_execution_pointer($taskid, $taskinstanceid, $executionmode)
 	{
 		// checks
@@ -2103,62 +2014,39 @@ final class tasks
 			}
 			
 			$taskinstruction = $taskmeta["task_instructions_by_id"][$execution_pointer];
-			$then_that_item = $taskinstruction["attributes"];
-			
-			
+			$attributes = $taskinstruction["attributes"];
 			
 			// execute the instruction on the existing execution_pointer
 			if (true)
 			{
 				$type = $taskinstruction["type"];
-				$path = tasks::gettaskinstructionpath($type);
-				if (!file_exists($path))
-				{
-					$result["result"] = "NACK";
-					$result["nack_reason"] = "task instruction not found";
-					$result["path"] = $path;
-					$result["taskinstruction"] = $taskinstruction;
-					return $result;
-				}
-				require_once($path);
+
+				tasks::ensuretaskinstructionloaded($type);
+
+				$class = "barkgj\tasks\taskinstruction\{$type}";
+				$instance = new $class();
+				$execution_result = $instance->execute($taskid, $taskinstanceid, $attributes);
 				
-				$functionnametoinvoke = "tasks_instance_do_{$type}";
-				$functionnametoinvoke = str_replace("-", "_", $functionnametoinvoke);	// dashes are converted to underscores
-				
-				if (!function_exists($functionnametoinvoke)) 
-			{
-				$result["result"] = "NACK";
-					$result["nack_reason"] = "THEN_THAT_ITEM_TYPE_FUNCTION_NOT_FOUND";
-					$result["not_found_function"] = $functionnametoinvoke;
-					$result["taskinstruction"] = $taskinstruction;
-					$result["then_that_item"] = $then_that_item;
-					
-					return $result;
-				}
-				
-				$do_args = array("then_that_item" => $then_that_item, "taskid" => $taskid, "taskinstanceid" => $taskinstanceid);
-			$do_result = call_user_func_array($functionnametoinvoke, $do_args);
-			
-			// extend the stacktrace to we know what we did in case something goes wrong or bad
-			$result["processed_items"][] = array
+				// extend the stacktrace to we know what we did in case something goes wrong or bad
+				$result["processed_items"][] = array
 				(
 					"then_that_item" => $then_that_item,
-					"do_result" => $do_result,
+					"do_result" => $execution_result,
 				);
 				
 				// replicate the console output to the invoker
-				foreach ($do_result["console"] as $line)
+				foreach ($execution_result["console"] as $line)
 				{
 					$result["console"][] = $line;
 				}
 				
 				// don't invoke other workflows if this one produced a NACK
 				// in this case the execution pointer will not be shifted
-				if ($do_result["result"] != "OK")
+				if ($execution_result["result"] != "OK")
 				{
 					$result["result"] = "NACK";
-					$result["nack_details"]["function"]["name"] = $functionnametoinvoke;
-					$result["nack_details"]["function"]["args"] = $do_args;
+					$result["nack_details"]["function"]["name"] = $type;
+					$result["nack_details"]["function"]["args"] = $attributes;
 					
 					return $result;
 				}
@@ -2761,5 +2649,75 @@ final class tasks
 		return $result;	
 	}
 
+	// query task instances / queries task instances
+	public static function searchtaskinstances($args)
+	{
+		$return_this = $args["return_this"];
+		
+		$if_this = $args["if_this"];
+		if ($if_this == null) { functions::throw_nack("tasks_searchtaskinstances; if_this not set in args"); }
+
+		$result["taskinstances"] = array();
+
+
+		
+		// loop over all tasks types
+		global $g_modelmanager;
+		$a = array("singularschema" => "nxs.p001.businessprocess.task");
+		$alltaskrows = $g_modelmanager->gettaxonomypropertiesofallmodels($a);
+		foreach ($alltaskrows as $alltaskrow)
+		{
+			$task_id = $alltaskrow["nxs.p001.businessprocess.task_id"];
+			$title = $alltaskrow["title"];
+			
+			$path = tasks::gettaskpath($task_id);
+			if (!file_exists($path)) 
+			{ 
+				// $result["errors"][] = "task_id skipped; path not found? $task_id";
+				continue;
+			}
+
+			$string = file_get_contents($path);
+			
+			$allmeta = json_decode($string, true);
+			
+			foreach ($allmeta as $id => $meta)
+			{
+				$evaluate_result = tasks::search_evaluate_if_this($if_this, $task_id, $meta);
+				if ($evaluate_result["conclusion"] == true)
+				{
+					if (false)
+					{
+					}
+					else if (!isset($return_this))
+					{
+						$result["taskinstances"][] = array
+						(
+							"taskid" => $task_id,
+							"taskinstanceid" => $id,
+							"url" => "https://global.nexusthemes.com/?nxs=task-gui&page=taskinstancedetail&taskid={$task_id}&taskinstanceid={$id}",
+						);
+					}
+					else if ($return_this == "details")
+					{
+						$meta["taskid"] = $task_id;
+						$meta["taskinstanceid"] = $id;
+						$result["taskinstances"][] = $meta;
+					}
+					else
+					{
+						$result["taskinstances"][] = array
+						(
+							"taskid" => $task_id,
+							"taskinstanceid" => $id,
+							"url" => "https://global.nexusthemes.com/?nxs=task-gui&page=taskinstancedetail&taskid={$task_id}&taskinstanceid={$id}",
+						);
+					}
+				}
+			}
+		}
+		
+		return $result;
+	}
 	*/
 }
