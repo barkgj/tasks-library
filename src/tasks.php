@@ -6,10 +6,11 @@
 //require_once("/srv/generic/libraries-available/nxs-fs/nxs-fs.php");
 //$result = __DIR__ . "/task-instructions/taskinstruction-{$type}.php";
 
-namespace barkgj;
+namespace barkgj\tasks;
 
 require "itaskinstruction.php";
 
+use barkgj\functions;
 use barkgj\datasink\entity;
 use barkgj\tasks\itaskinstruction;
 
