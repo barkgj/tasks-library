@@ -110,7 +110,7 @@ final class tasks
 		$parentstateparameters = array();
 		if ($createdby_taskid != "" && $createdby_taskinstanceid != "")
 		{
-			$parentstateparameters = tasks::getinstancestateparameters($createdby_taskid, $createdby_taskinstanceid);
+			$parentstateparameters = tasks::gettaskinstancestateparameters($createdby_taskid, $createdby_taskinstanceid);
 			
 			// handle sticky_stateparameters; these will automatically be copied to the offspring,
 			// if they have a value, and if not yet "set" manually
@@ -312,7 +312,7 @@ final class tasks
 		return $result;
 	}
 
-	public static function getinstancestateparameters($taskid, $taskinstanceid)
+	public static function gettaskinstancestateparameters($taskid, $taskinstanceid)
 	{
 		$instance = tasks::gettaskinstance($taskid, $taskinstanceid);
 		$result = $instance["stateparameters"];
@@ -678,7 +678,7 @@ final class tasks
 		if ($taskinstructiontype == "") { functions::throw_nack("taskinstructiontype not set"); }
 		
 		$key = "taskinstructionresult_{$taskinstructiontype}";
-		$stateparameters = tasks::getinstancestateparameters($taskid, $taskinstanceid);
+		$stateparameters = tasks::gettaskinstancestateparameters($taskid, $taskinstanceid);
 		$json = $stateparameters[$key];
 		if ($json == "")
 		{
@@ -723,6 +723,8 @@ final class tasks
 
 		return $result;
 	}
+
+	
 
 	public static function deleteinput_for_taskinstance($taskid, $taskinstanceid, $inputparameter)
 	{
@@ -968,7 +970,7 @@ final class tasks
 	/*
 	public static function reverttorequiredstateparameters($taskid, $taskinstanceid)
 	{
-		$existingstateparameters = tasks::getinstancestateparameters($taskid, $taskinstanceid);
+		$existingstateparameters = tasks::gettaskinstancestateparameters($taskid, $taskinstanceid);
 		
 		$meta = tasks::getreflectionmeta($taskid, $taskinstanceid);
 		$required_fields = $meta["required_fields"];
@@ -1185,7 +1187,7 @@ final class tasks
 		// createdby_taskid and createdby_taskinstanceid were stored in stateparameters
 		if ($parent_taskid == "" || $parent_taskinstanceid == "")
 		{
-			$stateparameters_current = tasks::getinstancestateparameters($taskid, $taskinstanceid);
+			$stateparameters_current = tasks::gettaskinstancestateparameters($taskid, $taskinstanceid);
 			$parent_taskid = $stateparameters_current["createdby_taskid"];
 			$parent_taskinstanceid = $stateparameters_current["createdby_taskinstanceid"];
 		}
