@@ -72,7 +72,7 @@ final class tasks
 		$entitymetadataraw = entity::getentitymetadataraw($getentitymetadatarawargs);
 		$result["task"]["metadataraw"] = $entitymetadataraw;
 
-		$instancescount = tasks::getinstancescount($taskid);
+		$instancescount = tasks::gettaskinstancescount($taskid);
 		$result["taskinstances"]["count"] = $instancescount;
 
 		return $result;
@@ -394,7 +394,7 @@ final class tasks
 				
 			// for example:
 			// [p001_task_instruction type='start-task-instance']
-			// * * [p001_task_instruction type='set_parameter' set_inputparameter_field='elementor_affiliate_url' function='staticvalue' value='https://link.nexusthemes.com/link/?to=premiumpluginbyid:3&channel=nt&channeldetail=prodpage&mdp={{mdp_id}}&eid={{theme_itemmeta_id}}']
+			// * * [p001_task_instruction type='set_parameter' set_stateparameter_field='elementor_affiliate_url' function='staticvalue' value='https://link.nexusthemes.com/link/?to=premiumpluginbyid:3&channel=nt&channeldetail=prodpage&mdp={{mdp_id}}&eid={{theme_itemmeta_id}}']
 			
 			$identifyingprefixcount = substr_count($line, $identifyingprefix);
 			if ($identifyingprefixcount > 1) { functions::throw_nack("found line with multiple shortcodes; this is not (yet) supported; taskid: $taskid; linenr: $linenr; $line"); }
@@ -509,7 +509,7 @@ final class tasks
 						{
 							// for example:
 							// [p001_task_instruction type='start-task-instance']
-							// * * [p001_task_instruction type='set_parameter' set_inputparameter_field='elementor_affiliate_url' function='staticvalue' value='https://link.nexusthemes.com/link/?to=premiumpluginbyid:3&channel=nt&channeldetail=prodpage&mdp={{mdp_id}}&eid={{theme_itemmeta_id}}']
+							// * * [p001_task_instruction type='set_parameter' set_stateparameter_field='elementor_affiliate_url' function='staticvalue' value='https://link.nexusthemes.com/link/?to=premiumpluginbyid:3&channel=nt&channeldetail=prodpage&mdp={{mdp_id}}&eid={{theme_itemmeta_id}}']
 		
 							$instructionnr++;
 							
@@ -617,11 +617,11 @@ final class tasks
 		return $result;
 	}
 
-	public static function appendinputparameter_for_taskinstance($taskid, $taskinstanceid, $key, $val)
+	public static function appendstateparameter_for_taskinstance($taskid, $taskinstanceid, $key, $val)
 	{
 		if ($key == "")
 		{
-			functions::throw_nack("tasks::appendinputparameter_for_taskinstance; key not set (for $taskid, $taskinstanceid, $key, $val)");
+			functions::throw_nack("tasks::appendstateparameter_for_taskinstance; key not set (for $taskid, $taskinstanceid, $key, $val)");
 		}
 		$stateparameterstoappend = array();
 		$stateparameterstoappend[$key] = $val;
@@ -699,36 +699,25 @@ final class tasks
 		if ($taskinstructionresult == "") { functions::throw_nack("taskinstructionresult not set"); }
 		$key = "taskinstructionresult_{$taskinstructiontype}";
 		$val = json_encode($taskinstructionresult);
-		tasks::appendinputparameter_for_taskinstance($taskid, $taskinstanceid, $key, $val);
+		tasks::appendstateparameter_for_taskinstance($taskid, $taskinstanceid, $key, $val);
 	}
 
 	public static function deletestateparameters_for_taskinstance($taskid, $taskinstanceid, $stateparameters)
 	{
-		$basefolder = tasks::getbasefolder();
-		$path = "{$basefolder}/{$taskid}.json";
-		$string = file_get_contents($path);
-		$meta = json_decode($string, true);
-		
-		foreach ($stateparameters as $inputparameter)
+		$instance = tasks::gettaskinstance($taskid, $taskinstanceid);
+		foreach ($stateparameters as $stateparameter)
 		{
-			unset($meta[$taskinstanceid]["stateparameters"][$inputparameter]);
+			unset($instance["stateparameters"][$stateparameter]);
 		}
-		$string = json_encode($meta);
-		$r = file_put_contents($path, $string, LOCK_EX);
-		if ($r === false) { functions::throw_nack("error deleting fields from task instance"); }
 
-		$result = array
-		(
-		);
-
+		$result = tasks::updatetaskinstance($taskid, $taskinstanceid, $instance);
+		
 		return $result;
 	}
 
-	
-
-	public static function deleteinput_for_taskinstance($taskid, $taskinstanceid, $inputparameter)
+	public static function deletestateparameter_for_taskinstance($taskid, $taskinstanceid, $stateparameter)
 	{
-		$stateparameters = array($inputparameter);
+		$stateparameters = array($stateparameter);
 		$result = tasks::deletestateparameters_for_taskinstance($taskid, $taskinstanceid, $stateparameters);
 		return $result;
 	}
@@ -978,11 +967,11 @@ final class tasks
 		error_log("tasks::reverttorequiredstateparameters; $taskid, $taskinstanceid; required fields:" . json_encode($required_fields));
 		
 		$fields_to_be_removed = array();
-		foreach ($existingstateparameters as $existinginputparameter => $existinginputparameterval)
+		foreach ($existingstateparameters as $existingstateparameter => $existingstateparameterval)
 		{
-			if (!in_array($existinginputparameter, $required_fields))
+			if (!in_array($existingstateparameter, $required_fields))
 			{
-				$fields_to_be_removed[] = $existinginputparameter;
+				$fields_to_be_removed[] = $existingstateparameter;
 			}
 		}
 		
@@ -1091,7 +1080,7 @@ final class tasks
 		"instructionnr": 3,
 		"type": "set_parameter",
 		"attributes": {
-		"set_inputparameter_field": "designer",
+		"set_stateparameter_field": "designer",
 		"function": "shortcode",
 		"shortcode_type": "string",
 		"ops": "modelproperty",
@@ -1256,6 +1245,7 @@ final class tasks
 		return $result;
 	}
 
+	/*
 	public static function deep_searchtaskinstances($taskid, $fields_filter, $limit, $state)
 	{
 		$result["taskinstances"] = array();
@@ -1305,12 +1295,10 @@ final class tasks
 						}
 					}
 					
-					/*
-					$result["debug"][] = $possiblefilepath;
-					$result["debug"][] = "count:".count($instances_data);
-					$result["debug"][] = $state;
-					$result["debug"][] = $instance_meta["state"] . " versus " . $state;
-					*/
+					//$result["debug"][] = $possiblefilepath;
+					//$result["debug"][] = "count:".count($instances_data);
+					//$result["debug"][] = $state;
+					//$result["debug"][] = $instance_meta["state"] . " versus " . $state;
 					
 					if ($ismatch)
 					{
@@ -1350,8 +1338,7 @@ final class tasks
 		
 		return $result;
 	}
-
-
+	*/
 	
 	public static function search_evaluate_if_this($if_this, $taskid, $taskmeta)
 	{
@@ -1406,7 +1393,7 @@ final class tasks
 				$result["conclusion"] = false;
 			}
 		}
-		else if ($if_this_type == "true_if_inputparameter_has_required_value_for_key")
+		else if ($if_this_type == "true_if_stateparameter_has_required_value_for_key")
 		{
 			$key = $if_this["key"];
 			$required_value = $if_this["required_value"];
@@ -1420,7 +1407,7 @@ final class tasks
 				$result["conclusion"] = false;
 			}
 		}
-		else if ($if_this_type == "true_if_inputparameter_not_has_required_value_for_key")
+		else if ($if_this_type == "true_if_stateparameter_not_has_required_value_for_key")
 		{
 			$key = $if_this["key"];
 			$required_value = $if_this["value"];
@@ -1568,6 +1555,7 @@ final class tasks
 		return $result;
 	}
 
+	/*
 	public static function archive_taskinstances($taskid)
 	{
 		$result = array();
@@ -1673,7 +1661,6 @@ final class tasks
 		return $result;
 	}
 
-	/*
 	public static function createtaskinstance_byinvokingapi($taskidofinstancetocreate, $stateparameters, $createdby_taskid, $createdby_taskinstanceid)
 	{
 		$action_url = "https://global.nexusthemes.com/api/1/prod/create-task-instance/";
@@ -1716,7 +1703,7 @@ final class tasks
 	*/
 
 	// free key
-	public static function getunallocatedinputparameter($base_of_key, $stateparameters, $maxindex = 99)
+	public static function getunallocatedstateparameter($base_of_key, $stateparameters, $maxindex = 99)
 	{
 		$result = false;
 		$index = 0;
@@ -1810,7 +1797,7 @@ final class tasks
 		$duration_secs = $taskinstance["starttime"] - $taskinstance["createtime"];
 		$duration_human = functions::getsecondstohumanreadable($duration_secs);
 
-		$updateresult = tasks::updatetaskinstance($taskid, $taskinst, $taskinstance);
+		$updateresult = tasks::updatetaskinstance($taskid, $taskinstanceid, $taskinstance);
 
 		$result = array
 		(
@@ -2033,7 +2020,7 @@ final class tasks
 				// extend the stacktrace to we know what we did in case something goes wrong or bad
 				$result["processed_items"][] = array
 				(
-					"then_that_item" => $then_that_item,
+					"attributes" => $attributes,
 					"do_result" => $execution_result,
 				);
 				
@@ -2180,12 +2167,12 @@ final class tasks
 			
 			$stateparameters = $entry["stateparameters"];
 			$parameters_html = "";
-			foreach ($stateparameters as $inputparameter => $val)
+			foreach ($stateparameters as $stateparameter => $val)
 			{
 				$shouldshow = true;
 				if ($o_stateparameters != "")
 				{
-					if (!in_array($inputparameter, $o_stateparameters_list))
+					if (!in_array($stateparameter, $o_stateparameters_list))
 					{
 						$shouldshow = false;
 					}
@@ -2194,7 +2181,7 @@ final class tasks
 				if ($shouldshow)
 				{
 					
-					$parameters_html .= "{$inputparameter} : {$val}<br />";
+					$parameters_html .= "{$stateparameter} : {$val}<br />";
 				}
 			}
 			
