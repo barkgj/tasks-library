@@ -3,7 +3,7 @@
 namespace barkgj\tasks\taskinstruction;
 
 use barkgj\functions;
-use barkgj\tasks;
+use barkgj\tasks\tasks;
 use barkgj\tasks\itaskinstruction;
 
 class set_stateparameter implements itaskinstruction
@@ -20,7 +20,7 @@ class set_stateparameter implements itaskinstruction
 		$key = $attributes["key"];
 		$value = $attributes["value"];
 		
-		tasks::appendinputparameter_for_taskinstance($this->taskid, $this->taskinstanceid, $key, $value);
+		tasks::appendstateparameter_for_taskinstance($taskid, $taskinstanceid, $key, $value);
 
 		$result["console"][] = "SET VALUE OF $key TO $value";
 		$result["result"] = "OK";

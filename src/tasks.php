@@ -13,6 +13,7 @@ require "itaskinstruction.php";
 use barkgj\functions;
 use barkgj\datasink\entity;
 use barkgj\tasks\itaskinstruction;
+use barkgj\tasks\taskinstruction;
 
 final class tasks
 {
@@ -24,14 +25,22 @@ final class tasks
 
 	public static function gettaskinstructionpath($taskinstructiontype)
 	{
-		$result = __DIR__ . "/task-instructions/taskinstruction-{$taskinstructiontype}.php";
+		$result = __DIR__ . DIRECTORY_SEPARATOR . "task-instructions" . DIRECTORY_SEPARATOR . "taskinstruction-{$taskinstructiontype}.php";
 		return $result;
 	}
 
 	public static function ensuretaskinstructionloaded($taskinstructiontype)
 	{
 		$path = tasks::gettaskinstructionpath($taskinstructiontype);
-		require_once($path);
+		if (file_exists($path))
+		{
+			require_once($path);
+		}
+		else
+		{
+			functions::throw_nack("taskinstruction not loaded; {$taskinstructiontype}; path not found; {$path}");
+		}
+		echo "ensuretaskinstructionloaded; loaded $path;";
 	}
 
 	public static function taskexists($taskid)
@@ -885,6 +894,20 @@ final class tasks
 		return $result;
 	}
 
+	public static function gettaskids()
+	{
+		$getentitiesrawargs = array
+		(
+			"datasink_realm" => "tasks",
+			"datasink_entitytype" => "task",
+			"datasink_include_meta" => false
+		);
+		$entities = entity::getentitiesraw($getentitiesrawargs);
+		$result = array_keys($entities);
+
+		return $result;
+	}
+
 	public static function gettaskinstanceids($taskid)
 	{
 		$getentitiesrawargs = array
@@ -1245,7 +1268,6 @@ final class tasks
 		return $result;
 	}
 
-	/*
 	public static function deep_searchtaskinstances($taskid, $fields_filter, $limit, $state)
 	{
 		$result["taskinstances"] = array();
@@ -1265,81 +1287,45 @@ final class tasks
 		$break_outer_loop = false;
 		
 		$matches_so_far = 0;
+
+		// find all tasks
+		// foreach task
+		//   find all instances
+		//   for each instance
+		//     if (filter applies)
+		//       include
 		
-		$possiblefilepaths = tasks::getpossiblefilepaths($taskid);
-		foreach ($possiblefilepaths as $possiblefilepath)
+		$getentitiesrawargs = array
+		(
+			"datasink_realm" => "tasks",
+			"datasink_entitytype" => "task",
+			"datasink_include_meta" => false
+		);
+		$tasks = entity::getentitiesraw($getentitiesrawargs);
+
+		foreach ($tasks as $taskid => $ignore)
 		{
-			
-			
-			if (file_exists($possiblefilepath))
+			$gettaskinstanceargs = array
+			(
+				"datasink_realm" => "tasks",
+				"datasink_entitytype" => "task_{$taskid}_instances",
+				"datasink_include_meta" => true
+			);
+			$taskinstances = entity::getentitiesraw($gettaskinstanceargs);
+	
+			foreach($taskinstances as $taskinstance)
 			{
-				
-				
-				$instances_data_string = file_get_contents($possiblefilepath);
-				$instances_data = json_decode($instances_data_string, true);
-				
-				foreach ($instances_data as $id => $instance_meta)
+				$shouldinclude = true;
+				if ($shouldinclude)
 				{
-					
-					$ismatch = true;
-					
-					if ($ismatch)
-					{
-						foreach ($criteria as $k => $v)
-						{
-							if ($instance_meta["stateparameters"][$k] != $v)
-							{
-								$ismatch = false;
-								break;
-							}
-						}
-					}
-					
-					//$result["debug"][] = $possiblefilepath;
-					//$result["debug"][] = "count:".count($instances_data);
-					//$result["debug"][] = $state;
-					//$result["debug"][] = $instance_meta["state"] . " versus " . $state;
-					
-					if ($ismatch)
-					{
-						if ($state != "")
-						{
-							if ($instance_meta["state"] != $state)
-							{
-								$ismatch = false;
-							}
-						}
-					}
-					
-					if ($ismatch)
-					{
-						$matches_so_far++;
-						$result["taskinstances"][$id] = $instance_meta;
-						
-						if ($matches_so_far >= $limit)
-						{
-							$break_outer_loop = true;
-							break;
-						}
-					}
-				}
-			}
-			else
-			{
-				// a legit possibility; the possible file paths are filled based on theoretical month and year,
-				// if there were no instances of the task then the file will not be there, nothing wrong
-			}
-			
-			if ($break_outer_loop)
-			{
-				break;
+					$result[] = $taskinstance;
+				}	
 			}
 		}
-		
+
 		return $result;
 	}
-	*/
-	
+
 	public static function search_evaluate_if_this($if_this, $taskid, $taskmeta)
 	{
 		if ($if_this == null)
@@ -1552,6 +1538,7 @@ final class tasks
 		{
 			functions::throw_nack("unsupported type (1); '$if_this_type' in " . json_encode($if_this) . "");
 		}
+		
 		return $result;
 	}
 
@@ -2094,7 +2081,6 @@ final class tasks
 		return $result;
 	}
 
-	
 	/*
 	public static function ui_getrendered_taskinstances($taskinstances, $renderargs)
 	{
@@ -2638,6 +2624,7 @@ final class tasks
 		
 		return $result;	
 	}
+	*/
 
 	// query task instances / queries task instances
 	public static function searchtaskinstances($args)
@@ -2649,31 +2636,18 @@ final class tasks
 
 		$result["taskinstances"] = array();
 
-
-		
-		// loop over all tasks types
-		global $g_modelmanager;
-		$a = array("singularschema" => "nxs.p001.businessprocess.task");
-		$alltaskrows = $g_modelmanager->gettaxonomypropertiesofallmodels($a);
-		foreach ($alltaskrows as $alltaskrow)
+		$taskids = tasks::gettaskids();
+		foreach ($taskids as $taskid)
 		{
-			$task_id = $alltaskrow["nxs.p001.businessprocess.task_id"];
-			$title = $alltaskrow["title"];
-			
-			$path = tasks::gettaskpath($task_id);
-			if (!file_exists($path)) 
-			{ 
-				// $result["errors"][] = "task_id skipped; path not found? $task_id";
-				continue;
-			}
-
-			$string = file_get_contents($path);
-			
-			$allmeta = json_decode($string, true);
-			
-			foreach ($allmeta as $id => $meta)
+			//echo "------\r\n";
+			//echo "task: {$taskid}\r\n";
+			//echo "instanceS:";
+			$taskinstanceids = tasks::gettaskinstanceids($taskid);
+			foreach ($taskinstanceids as $taskinstanceid)
 			{
-				$evaluate_result = tasks::search_evaluate_if_this($if_this, $task_id, $meta);
+				$meta = tasks::gettaskinstance($taskid, $taskinstanceid);
+			
+				$evaluate_result = tasks::search_evaluate_if_this($if_this, $taskid, $meta);
 				if ($evaluate_result["conclusion"] == true)
 				{
 					if (false)
@@ -2683,23 +2657,23 @@ final class tasks
 					{
 						$result["taskinstances"][] = array
 						(
-							"taskid" => $task_id,
-							"taskinstanceid" => $id,
+							"taskid" => $taskid,
+							"taskinstanceid" => $taskinstanceid,
 							"url" => "https://global.nexusthemes.com/?nxs=task-gui&page=taskinstancedetail&taskid={$task_id}&taskinstanceid={$id}",
 						);
 					}
 					else if ($return_this == "details")
 					{
-						$meta["taskid"] = $task_id;
-						$meta["taskinstanceid"] = $id;
+						$meta["taskid"] = $taskid;
+						$meta["taskinstanceid"] = $taskinstanceid;
 						$result["taskinstances"][] = $meta;
 					}
 					else
 					{
 						$result["taskinstances"][] = array
 						(
-							"taskid" => $task_id,
-							"taskinstanceid" => $id,
+							"taskid" => $taskid,
+							"taskinstanceid" => $taskinstanceid,
 							"url" => "https://global.nexusthemes.com/?nxs=task-gui&page=taskinstancedetail&taskid={$task_id}&taskinstanceid={$id}",
 						);
 					}
@@ -2709,5 +2683,4 @@ final class tasks
 		
 		return $result;
 	}
-	*/
 }

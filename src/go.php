@@ -9,7 +9,7 @@ require __DIR__ . '/vendor/barkgj/functions-library/src/filesystem.php';
 require __DIR__ . '/tasks.php';
 
 use barkgj\functions;
-use barkgj\tasks;
+use barkgj\tasks\tasks;
 use barkgj\datasink\entity;
 use barkgj\tasks\itaskinstruction;
 
@@ -189,29 +189,62 @@ if (false)
     var_dump($r);
 }
 
-if (true)
+if (false)
 {
     $taskinstructions = array();
 
     tasks::ensuretaskinstructionloaded("set_stateparameter");
 
-    
-
     $taskid = 1;
     $taskinstanceid = "CFAC5ACB-DC26-4C34-A86D-B4FBEAF9E74F";
 
-    $taskinstructions[] = new set_stateparameter($taskid, $taskinstanceid, array("key"=>"nameofproperty", "value"=> "valueofproperty"));
-    $taskinstructions[] = new set_stateparameter($taskid, $taskinstanceid, array("key"=>"aap", "value"=> "10"));
+    $taskinstructions[] = new barkgj\tasks\taskinstruction\set_stateparameter();
 
-    foreach($taskinstructions as $taskinstruction)
-    {
-        $e = $taskinstruction->execute();
-    }
 
     $r = tasks::gettaskinstance($taskid, $taskinstanceid);
 
     var_dump($r);
 }
+
+if (false)
+{
+    $taskids = tasks::gettaskids();
+    foreach ($taskids as $taskid)
+    {
+        echo "------\r\n";
+        echo "task: {$taskid}\r\n";
+        echo "instanceS:";
+        $taskinstanceids = tasks::gettaskinstanceids($taskid);
+        foreach ($taskinstanceids as $taskinstanceid)
+        {
+            echo "taskinstanceid: {$taskinstanceid}\r\n";
+        }
+    }
+    echo "thats all...\r\n";
+}
+
+if (true)
+{
+    $searchargs = array
+    (
+        "if_this" => array
+        (
+            "type" => "true_if_in_any_of_the_required_states",
+            "any_of_the_required_states" => array("CREATED", "STARTED"),
+        ),
+        "return_this" => "details",
+    );
+    $taskinstances = tasks::searchtaskinstances($searchargs);
+    foreach ($taskinstances as $taskinstance)
+    {
+        
+        echo "found taskinstance;\r\n";
+        var_dump($taskinstance);
+        echo "\r\n";
+        echo "-------\r\n";
+    }
+}
+
 
 
 
