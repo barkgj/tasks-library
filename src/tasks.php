@@ -894,6 +894,20 @@ final class tasks
 		return $result;
 	}
 
+	public static function gettasks()
+	{
+		$getentitiesrawargs = array
+		(
+			"datasink_realm" => "tasks",
+			"datasink_entitytype" => "task",
+			"datasink_include_meta" => true
+		);
+		$entities = entity::getentitiesraw($getentitiesrawargs);
+		$result = array_keys($entities);
+
+		return $result;
+	}
+
 	public static function gettaskids()
 	{
 		$getentitiesrawargs = array
