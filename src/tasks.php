@@ -162,7 +162,7 @@ final class tasks
 			"createdby_taskid" => $createdby_taskid,
 			"createdby_taskinstanceid" => $createdby_taskinstanceid,
 			"instance_context" => $taskinstanceid,	// obsolete, but in here for downwards compatibility
-			"assignedtoemployee_id" => $assigned_to,
+			"assignedtouserid" => $assigned_to,
 			"stateparameters" => $stateparameters,
 		);
 
@@ -903,7 +903,7 @@ final class tasks
 			"datasink_include_meta" => true
 		);
 		$entities = entity::getentitiesraw($getentitiesrawargs);
-		$result = array_keys($entities);
+		$result = $entities;
 
 		return $result;
 	}
@@ -1491,7 +1491,7 @@ final class tasks
 		else if ($if_this_type == "true_if_assigned_to_any_of_the_required_employees")
 		{
 			$any_of_the_required_employees = $if_this["any_of_the_required_employees"];
-			$value = $taskmeta["assignedtoemployee_id"];
+			$value = $taskmeta["assignedtouserid"];
 			if (in_array($value, $any_of_the_required_employees))
 			{
 				$result["conclusion"] = true;
@@ -1503,9 +1503,9 @@ final class tasks
 		}
 		else if ($if_this_type == "true_if_taskinstance_notyetassignedtoemployee")
 		{
-			$assignedtoemployee_id = $taskmeta["assignedtoemployee_id"];
+			$assignedtouserid = $taskmeta["assignedtouserid"];
 			
-			if ($assignedtoemployee_id == "")
+			if ($assignedtouserid == "")
 			{
 				$result["conclusion"] = true;
 			}
@@ -1778,7 +1778,7 @@ final class tasks
 		return $items_requiring_batch_processing;
 	}
 
-	public static function starttaskinstance($taskid, $taskinstanceid, $assignedtoemployee_id)
+	public static function starttaskinstance($taskid, $taskinstanceid, $assigntouserid)
 	{
 		if ($taskid == "") { functions::throw_nack("businessprocesstaskid not set"); }
 		if ($taskinstanceid == "") { functions::throw_nack("taskinstanceid not set"); }
@@ -1790,9 +1790,9 @@ final class tasks
 		$taskinstance[$taskinstanceid]["state"] = "STARTED";
 		$taskinstance["starttime"] = time();
 		
-		if ($assignedtoemployee_id != "")
+		if ($assigntouserid != "")
 		{
-			$taskinstance["assignedtoemployee_id"] = $assignedtoemployee_id;
+			$taskinstance["assignedtouserid"] = $assigntouserid;
 		}
 
 		$duration_secs = $taskinstance["starttime"] - $taskinstance["createtime"];
@@ -2648,6 +2648,8 @@ final class tasks
 		$if_this = $args["if_this"];
 		if ($if_this == null) { functions::throw_nack("tasks_searchtaskinstances; if_this not set in args"); }
 
+		$homeurl = functions::geturlhome();
+
 		$result["taskinstances"] = array();
 
 		$taskids = tasks::gettaskids();
@@ -2673,7 +2675,7 @@ final class tasks
 						(
 							"taskid" => $taskid,
 							"taskinstanceid" => $taskinstanceid,
-							"url" => "https://global.nexusthemes.com/?nxs=task-gui&page=taskinstancedetail&taskid={$task_id}&taskinstanceid={$id}",
+							"url" => "{$homeurl}?nxs=task-gui&page=taskinstancedetail&taskid={$taskid}&taskinstanceid={$taskinstanceid}",
 						);
 					}
 					else if ($return_this == "details")
@@ -2688,7 +2690,7 @@ final class tasks
 						(
 							"taskid" => $taskid,
 							"taskinstanceid" => $taskinstanceid,
-							"url" => "https://global.nexusthemes.com/?nxs=task-gui&page=taskinstancedetail&taskid={$task_id}&taskinstanceid={$id}",
+							"url" => "{$homeurl}?nxs=task-gui&page=taskinstancedetail&taskid={$taskid}&taskinstanceid={$taskinstanceid}",
 						);
 					}
 				}
