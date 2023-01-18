@@ -1787,7 +1787,7 @@ final class tasks
 		$oldstate = $taskinstance["state"];
 		if ($oldstate != "CREATED") { functions::throw_nack("unexpected old state; $oldstate (expected CREATED)"); }
 		
-		$taskinstance[$taskinstanceid]["state"] = "STARTED";
+		$taskinstance["state"] = "STARTED";
 		$taskinstance["starttime"] = time();
 		
 		if ($assigntouserid != "")
