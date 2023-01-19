@@ -644,7 +644,7 @@ final class tasks
 		
 		foreach ($stateparameterstoappend as $name => $value)
 		{
-			$meta[$taskinstanceid]["stateparameters"][$name] = $value;
+			$meta["stateparameters"][$name] = $value;
 		}
 		
 		$result = tasks::updatetaskinstance($taskid, $taskinstanceid, $meta);
