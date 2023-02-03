@@ -43,6 +43,11 @@ final class tasks
 		echo "ensuretaskinstructionloaded; loaded $path;";
 	}
 
+	public static function createtask($args, $taskmeta, $taskrecipe)
+	{
+		functions::throw_nack("to be implemented");
+	}
+
 	public static function taskexists($taskid)
 	{
 		$existsargs = array
