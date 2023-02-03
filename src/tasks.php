@@ -45,7 +45,71 @@ final class tasks
 
 	public static function createtask($args, $taskmeta, $taskrecipe)
 	{
-		functions::throw_nack("to be implemented");
+		$defaults = array
+		(
+			"invokedbytaskid" => "",
+			"invokedbytaskinstanceid" => "",
+			"alreadyfoundbehaviour" => "SKIP",
+		);
+		
+		$args = wp_parse_args( $args, $defaults );
+		
+		$taskid = $taskmeta["id"];
+		if ($isset($taskid))
+		{
+			functions::throw_nack("createtask; taskmeta id required");
+		}
+		
+		$taskrecipepath = tasks::gettaskrecipepath($taskid);
+		if (file_exists($taskrecipepath))
+		{
+			$existingtaskrecipe = file_get_contents($taskrecipepath);
+			if ($taskrecipe != $existingtaskrecipe)
+			{
+				functions::throw_nack("createtask; task recipe already exists ($taskid), and differs from requested, unable to proceed");
+			}
+			else
+			{
+				// already there, but the same
+			}
+		}
+		
+		$invokedbytaskid = $args["invokedbytaskid"];
+		$invokedbytaskinstanceid = $args["invokedbytaskinstanceid"];
+		
+		$storeargs = array
+		(
+			"datasink_invokedbytaskid" => $invokedbytaskid,
+			"datasink_invokedbytaskinstanceid" => $invokedbytaskinstanceid,
+			"datasink_realm" => "tasks",
+			"datasink_entitytype" => "task",
+			"datasink_alreadyfoundbehaviour" => "SKIP",
+			"datasink_accoladesfoundbehaviour" => "THROW_NACK"
+		);
+		
+		foreach ($taskmeta as $k => $v)
+		{
+			$storeargs[$k] = $v;
+		}
+		
+		$storeentitydataresult = entity::storeentitydata($storeargs);
+
+		// also store the recipe
+		if (!file_exists($taskrecipepath))
+		{
+			$storereciperesult = file_put_contents($taskrecipepath, $taskrecipe);
+		}
+		else
+		{
+			// already there
+		}
+
+		$result = array
+		(
+			"store_entity_result" => $storeentitydataresult,
+			"store_recipe_result" => $storereciperesult
+		);
+		return $result;
 	}
 
 	public static function taskexists($taskid)
