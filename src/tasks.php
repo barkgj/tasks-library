@@ -11,6 +11,7 @@ namespace barkgj\tasks;
 require "itaskinstruction.php";
 
 use barkgj\functions;
+use barkgj\functions\filesystem;
 use barkgj\datasink\entity;
 use barkgj\tasks\itaskinstruction;
 use barkgj\tasks\taskinstruction;
@@ -19,7 +20,7 @@ final class tasks
 {
 	public static function gettaskrecipepath($taskid)
 	{
-		$result = functions::getsitedatafolder() . "/tasks-recipes/{$taskid}.txt";
+		$result = functions::getsitedatafolder() . "/task-recipes/{$taskid}.txt";
 		return $result;
 	}
 
@@ -55,12 +56,16 @@ final class tasks
 		$args = wp_parse_args( $args, $defaults );
 		
 		$taskid = $taskmeta["id"];
-		if ($isset($taskid))
+		if (!isset($taskid))
 		{
 			functions::throw_nack("createtask; taskmeta id required");
 		}
 		
 		$taskrecipepath = tasks::gettaskrecipepath($taskid);
+
+		// create parent folder if not exists
+		filesystem::createcontainingfolderforfilepathifnotexists($taskrecipepath);
+
 		if (file_exists($taskrecipepath))
 		{
 			$existingtaskrecipe = file_get_contents($taskrecipepath);
@@ -98,10 +103,32 @@ final class tasks
 		if (!file_exists($taskrecipepath))
 		{
 			$storereciperesult = file_put_contents($taskrecipepath, $taskrecipe);
+			if ($storereciperesult === false) 
+			{
+				$storereciperesult = array
+				(
+					"conclusion" => "WRITE_NACK",
+					"taskrecipepath" => $taskrecipepath,
+					"taskrecipe" => $taskrecipe
+				); 
+			}
+			else
+			{
+				$storereciperesult = array
+				(
+					"conclusion" => "WRITE_OK",
+					"taskrecipepath" => $taskrecipepath,
+					"taskrecipe" => $taskrecipe
+				);
+			}
 		}
 		else
 		{
 			// already there
+			$storereciperesult = array
+			(
+				"conclusion" => "ALREADY_THERE"
+			);
 		}
 
 		$result = array
