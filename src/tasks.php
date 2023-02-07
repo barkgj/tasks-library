@@ -139,6 +139,46 @@ final class tasks
 		return $result;
 	}
 
+	public static function bootstrap($args)
+	{
+		$defaults = array
+		(
+			"invokedbytaskid" => "",
+			"invokedbytaskinstanceid" => "",
+			"bootstrapurl" => "https://raw.githubusercontent.com/barkgj/brk-tasks-bootstraps/main/vps/vps.bootstrap.json",
+		);
+		
+		$args = wp_parse_args( $args, $defaults );
+		
+		$result = array();
+
+		$bootstrapurl = $args["bootstrapurl"];
+		if (!isset($bootstrapurl))
+		{
+			functions::throw_nack("bootstrap; bootstrapurl not set");
+		}
+
+		$bootstrapbaseurl = dirname($bootstrapurl);
+		$bootstrapbaseurl = trim($bootstrapbaseurl, "/");
+
+		// download the bootstrap url
+		$configuration_string = file_get_contents($bootstrapurl);
+		$configuration = json_decode($configuration_string, true);
+		$tasks = $configuration["tasks"];
+		foreach ($tasks as $taskmeta)
+		{
+			$taskid = $taskmeta["id"];
+			$task_recipe_url = "{$bootstrapbaseurl}/{$taskid}.recipe.txt";
+			$taskrecipe = file_get_contents($task_recipe_url);
+			$result["logs"][] = "task found: taskid:{$taskid} recipe url:{$task_recipe_url}";
+
+			$ctresult = tasks::createtask($createtaskargs, $taskmeta, $taskrecipe);
+			$result["createtaskresults"][$taskid] = $ctresult;
+		}
+
+		return $result;
+	}
+
 	public static function taskexists($taskid)
 	{
 		$existsargs = array
